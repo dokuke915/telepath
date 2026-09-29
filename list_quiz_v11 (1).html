@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>タイムアタック・リストクイズ</title>
+<style>
+:root{--bg:#f7f7f8;--panel:#fff;--text:#222;--muted:#777;--line:#ddd;--primary:#4b67d1;--danger:#d9534f;--ok:#2f9e62}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 16px 60px}h1{font-size:28px;margin:0 0 5px}.sub{color:var(--muted);margin:0 0 18px}
+button,input,textarea,select{font:inherit}button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer}button:hover{filter:brightness(.97)}
+button.primary{background:var(--primary);color:#fff;border-color:var(--primary)}button.danger{color:#fff;background:var(--danger);border-color:var(--danger)}button.small{padding:6px 9px;font-size:13px}
+.tabs{display:flex;gap:7px;margin-bottom:12px}.tab{border-radius:10px}.tab.active{background:#222;color:#fff;border-color:#222}
+.panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}.hidden{display:none!important}
+.quiz-head{display:grid;grid-template-columns:1fr 120px 120px 130px;gap:12px;align-items:end}.quiz-title label,.card label{display:block;font-size:13px;font-weight:700;margin:0 0 6px}
+select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px;background:#fff}textarea{min-height:170px;resize:vertical}
+.stat{text-align:center;border:1px solid var(--line);border-radius:10px;padding:9px}.stat .num{font-size:22px;font-weight:800}.stat .lbl{font-size:12px;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.space{justify-content:space-between}.modebar{margin-top:12px}
+.mode-btn.on{background:var(--primary);color:#fff;border-color:var(--primary)}.mode-note,.help{font-size:12px;color:var(--muted)}
+.progress{height:8px;background:#eee;border-radius:99px;overflow:hidden;margin:15px 0}.progress>div{height:100%;width:0;background:var(--primary)}
+.answer-row{display:grid;grid-template-columns:1fr auto;gap:8px}.feedback{min-height:25px;padding:7px 0}.feedback.ok{color:var(--ok)}.feedback.bad{color:var(--danger)}
+.answers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:9px}.answer-item{border:1px solid var(--line);border-radius:9px;padding:10px;background:#fafafa;color:#999;min-height:42px}.answer-item.next-target{border:2px solid var(--primary)}.answer-item.found{color:#222;background:#fff}
+.finish{margin-top:15px;padding:18px;border:1px solid var(--line);border-radius:12px;text-align:center}.finish .time{font-size:30px;font-weight:800;margin:5px}
+.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}h2{font-size:18px;margin:0 0 14px}
+.field{margin-top:14px}.saved{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px;align-items:center}.saved-title{font-weight:800}.saved-count{font-size:12px;color:var(--muted);margin-top:3px}.manage-actions{display:flex;gap:5px;flex-wrap:wrap}
+.item-editor{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:7px}.item-editor-grid{display:grid;grid-template-columns:42px 1fr 1fr 90px;gap:7px;align-items:center}.item-editor-head{font-size:12px;color:var(--muted);margin-top:9px}
+.version-block{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}.version-title{font-weight:800;margin-bottom:8px}.version-block textarea{min-height:110px}
+@media(max-width:760px){.quiz-head{grid-template-columns:1fr 1fr 1fr}.quiz-title{grid-column:1/-1}.grid{grid-template-columns:1fr}.item-editor-grid{grid-template-columns:35px 1fr}.item-editor-grid .easy,.item-editor-grid .blank{grid-column:2}.answers{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>タイムアタック・リストクイズ</h1>
+<p class="sub">通常版と、問題数や表示内容が違う「簡単モード」を問題ごとに登録できます。<span id="sharedNote"></span></p>
+
+<div class="tabs"><button id="tabQuiz" class="tab active">クイズ</button><button id="tabManage" class="tab">問題を登録・管理</button></div>
+
+<section id="quizPanel" class="panel">
+  <div class="quiz-head">
+    <div class="quiz-title"><label>問題</label><select id="quizSelect"></select></div>
+    <div class="stat"><div id="countStat" class="num">0 / 0</div><div id="countLabel" class="lbl">正解数</div></div>
+    <div class="stat"><div id="attemptStat" class="num">0</div><div class="lbl">回答数</div></div>
+    <div class="stat"><div id="timeStat" class="num">00:00.0</div><div class="lbl">経過時間</div></div>
+  </div>
+  <div class="row modebar">
+    <button id="modeBtn" class="mode-btn">通常版</button><span id="modeNote" class="mode-note"></span>
+    <label><input id="sequentialMode" type="checkbox"> 上から順番に埋める</label>
+    <label><input id="hideCount" type="checkbox"> 高難易度モード</label>
+    <span style="flex:1"></span>
+    <button type="button" id="startBtn" class="primary">スタート</button><button type="button" id="resetBtn">リセット</button><button type="button" id="giveUpBtn" class="danger">終了して答えを見る</button>
+  </div>
+  <div class="progress"><div id="progressBar"></div></div>
+  <div class="answer-row"><input id="answerInput" type="text" placeholder="答えを入力" disabled><button id="submitBtn" class="primary" disabled>回答</button></div>
+  <div id="feedback" class="feedback"></div>
+  <div id="finishBox" class="finish hidden"><div id="finishMessage">クリア！</div><div id="finishTime" class="time">00:00.0</div><div id="finishCount"></div><button id="againBtn" class="primary">もう一度</button></div>
+  <div class="row space" style="margin-top:24px"><strong id="answerListTitle">正解リスト</strong><span class="help">未回答の項目は薄く表示されます</span></div>
+  <div id="answers" class="answers"></div>
+</section>
+
+<section id="managePanel" class="hidden">
+<div class="grid">
+<div class="card">
+<h2 id="formTitle">新しい問題を登録</h2>
+<label>問題名</label><input id="newTitle" type="text" placeholder="例：漫画のサブタイトル">
+<div class="version-block">
+<div class="version-title">通常版</div>
+<label>正解リスト（1行1問）</label><textarea id="normalAnswers" placeholder="第1話&#10;第2話&#10;特別編"></textarea>
+<div id="normalEditors"></div>
+</div>
+<div class="version-block">
+<div class="version-title"><label>簡単モードの名前</label><input id="easyName" type="text" placeholder="例：短縮版、初級編、アニメ版"></div>
+<label>簡単モードの正解リスト（1行1問）</label><textarea id="easyAnswers" placeholder="通常版とは違う数・違う答え・違う表示名で登録できます。&#10;不要なら空欄のまま。"></textarea>
+<div id="easyEditors"></div>
+</div>
+<div class="row" style="margin-top:14px"><button id="saveBtn" class="primary">問題を保存</button><button id="cancelBtn" class="hidden">編集をキャンセル</button></div>
+</div>
+<div class="card"><h2>登録済みの問題</h2><p class="help">「共有URLをコピー」で、この問題を登録済みの状態のまま友達に共有できます。友達はアプリを入れず、スマホ・PCのブラウザで開くだけです。</p><div id="savedList"></div></div>
+</div>
+</section>
+</div>
+
+<script>
+(()=>{
+const KEY="generic_list_quiz_v4";
+const sample=["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+function loadShared(){
+ try{
+   const hash=location.hash;
+   if(!hash.startsWith("#share="))return null;
+   const json=decodeURIComponent(escape(atob(hash.slice(7))));
+   const q=JSON.parse(json);
+   if(!q||!q.title||!Array.isArray(q.answers))return null;
+   return migrate(q);
+ }catch(e){return null}
+}
+let sharedQuiz=loadShared();
+let quizzes=sharedQuiz?[sharedQuiz]:load(), current=null, easy=false, found=new Set(), running=false, started=0, elapsed=0, raf=null, editing=null, attempts=0, revealAll=false;
+const $=id=>document.getElementById(id), norm=x=>String(x??"").trim().replace(/\s+/g," ");
+
+function migrate(q){
+ q.answers=Array.isArray(q.answers)?q.answers:[]; q.labels=Array.isArray(q.labels)?q.labels:[];
+ q.blank=Array.isArray(q.blank)?q.blank:[];
+ q.easy=q.easy&&typeof q.easy==="object"?q.easy:{name:"",answers:[],labels:[],blank:[]};
+ q.easy.answers=Array.isArray(q.easy.answers)?q.easy.answers:[]; q.easy.labels=Array.isArray(q.easy.labels)?q.easy.labels:[];
+ q.easy.blank=Array.isArray(q.easy.blank)?q.easy.blank:[];
+ while(q.labels.length<q.answers.length)q.labels.push("");
+ while(q.easy.labels.length<q.easy.answers.length)q.easy.labels.push("");
+ return q;
+}
+function load(){try{let x=JSON.parse(localStorage.getItem(KEY));if(Array.isArray(x)&&x.length)return x.map(migrate)}catch(e){}return [migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}})]}
+function save(){localStorage.setItem(KEY,JSON.stringify(quizzes))}
+function version(){return easy?current.easy:current}
+function label(i){const v=version(),x=v.labels?.[i];return x?x.replace(/\{n\}/g,String(i+1)):"未回答"}
+function answer(i){return norm(version().answers[i])}
+function isBlank(i){return version().blank?.includes(i)}
+function timeText(ms){let t=Math.floor(ms/100),d=t%10,s=Math.floor(t/10)%60,m=Math.floor(t/600);return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"."+d}
+function now(){return running?elapsed+(performance.now()-started):elapsed}
+function tick(){$("timeStat").textContent=timeText(now());if(running)raf=requestAnimationFrame(tick)}
+function stop(){if(running)elapsed=now();running=false;if(raf)cancelAnimationFrame(raf);raf=null}
+function reset(){stop();found=new Set();elapsed=0;attempts=0;revealAll=false;$("answerInput").disabled=true;$("submitBtn").disabled=true;$("startBtn").disabled=false;$("giveUpBtn").disabled=true;$("feedback").textContent="";$("finishBox").classList.add("hidden");$("timeStat").textContent="00:00.0";$("attemptStat").textContent="0";render()}
+function renderSelect(){let old=current?.id;$("quizSelect").innerHTML="";quizzes.forEach(q=>{let o=document.createElement("option");o.value=q.id;o.textContent=q.title;$("quizSelect").append(o)});if(old)$("quizSelect").value=old}
+function choose(id){current=migrate(quizzes.find(q=>q.id===id)||quizzes[0]);easy=false;updateMode();reset()}
+function updateMode(){let has=!!current.easy?.answers?.length; $("modeBtn").style.display=has?"inline-block":"none";$("modeBtn").textContent=easy?(current.easy.name||"簡単モード"):"通常版";$("modeBtn").classList.toggle("on",easy);$("modeNote").textContent=easy?"簡単版の問題でプレイ中":"通常版"}
+function render(){
+ if(!current)return; let v=version(), n=v.answers.length, hide=$("hideCount").checked;
+ $("countStat").textContent=hide?String(found.size):found.size+" / "+n;$("countLabel").textContent="正解数";
+ $("attemptStat").textContent=String(attempts);
+ $("progressBar").style.width=(n?found.size/n*100:0)+"%";$("answerListTitle").textContent=current.title+" — "+(easy?(current.easy.name||"簡単モード"):"通常版");
+ $("answerListTitle").nextElementSibling.textContent=hide?"回答した順に表示":"未回答の項目は薄く表示されます";
+ let next=n; if($("sequentialMode").checked)for(let i=0;i<n;i++)if(!found.has(i)){next=i;break}
+ $("answers").innerHTML="";
+
+ if(hide){
+   // 非表示モードでは未回答の項目を表示せず、回答済みだけを回答順に表示
+   [...found].forEach(i=>{
+     let el=document.createElement("div");
+     el.className="answer-item found";
+     // 高難易度モードでは、設定した未回答ラベルを表示せず答えだけを表示
+     el.textContent=isBlank(i)?"":answer(i);
+     $("answers").append(el);
+   });
+   return;
+ }
+
+ // 通常モードでは元の順番で未回答ラベルを表示
+ for(let i=0;i<n;i++){
+   let el=document.createElement("div"),ok=found.has(i),target=$("sequentialMode").checked&&i===next&&running;
+   el.className="answer-item"+((ok||revealAll)?" found":"")+(target?" next-target":"");
+   if(ok||revealAll)el.textContent=label(i)+(isBlank(i)?"":(" "+answer(i)));
+   else el.textContent=label(i);
+   $("answers").append(el);
+ }
+}
+function start(){reset();$("answerInput").disabled=false;$("submitBtn").disabled=false;$("startBtn").disabled=true;$("giveUpBtn").disabled=false;$("feedback").textContent="スタート！";started=performance.now();running=true;raf=requestAnimationFrame(tick);$("answerInput").focus()}
+function submit(){
+ if(!running)return;attempts++;$("attemptStat").textContent=String(attempts);let v=version(),input=norm($("answerInput").value),n=v.answers.length,seq=$("sequentialMode").checked,target=-1;
+ if(seq){for(let i=0;i<n;i++)if(!found.has(i)){target=i;break}}
+ if(seq&&target>=0&&isBlank(target)&&input===""){found.add(target);$("feedback").textContent="正解！";render();return found.size===n?finish(true):void 0}
+ if(!seq&&input===""){let i=v.answers.findIndex((_,j)=>!found.has(j)&&isBlank(j));if(i>=0){found.add(i);$("feedback").textContent="正解！";render();return found.size===n?finish(true):void 0}$("feedback").textContent="答えを入力してください。";return}
+ if(seq&&target>=0&&!isBlank(target)){if(norm(answer(target))===input){found.add(target);$("feedback").textContent="正解！"}else{$("feedback").textContent="今は上から順番に回答してください。";return}}
+ else if(!seq){let i=v.answers.findIndex((_,j)=>!found.has(j)&&!isBlank(j)&&norm(answer(j))===input);if(i>=0){found.add(i);$("feedback").textContent="正解！"}else{$("feedback").textContent="リストにない答えです。";return}}
+ $("answerInput").value="";render();if(found.size===n)finish(true)
+}
+function finish(clear){
+ stop();
+ revealAll=true;
+ $("answerInput").disabled=true;
+ $("submitBtn").disabled=true;
+ $("startBtn").disabled=false;
+ $("giveUpBtn").disabled=true;
+ $("finishBox").classList.remove("hidden");
+ $("finishMessage").textContent=clear?"クリア！":"終了";
+ $("finishTime").textContent=timeText(elapsed);
+ $("finishCount").textContent=found.size+" / "+version().answers.length+" 問正解・"+attempts+"回答";
+ $("feedback").textContent=clear?"全問正解です！":"終了しました。未回答の答えを表示しています。";
+ render();
+}
+function editors(kind,data){
+ let ta=$(kind==="normal"?"normalAnswers":"easyAnswers"),box=$(kind==="normal"?"normalEditors":"easyEditors"),arr=ta.value.split(/\r?\n/).map(norm).filter(Boolean),old=data||{labels:[],blank:[]};box.innerHTML="";
+ if(!arr.length)return;
+ let h=document.createElement("div");h.className="item-editor-head";h.textContent="番号 / 未回答時の表示 / 空白回答";box.append(h);
+ arr.forEach((a,i)=>{let r=document.createElement("div");r.className="item-editor item-editor-grid";let num=document.createElement("b");num.textContent="#"+(i+1);
+ let l=document.createElement("input");l.type="text";l.dataset.i=i;l.className=kind+"-label";l.placeholder="例：＃"+(i+1)+" / 特別編";l.value=old.labels?.[i]||"";
+ let b=document.createElement("label");b.className="blank";b.innerHTML='<input type="checkbox" class="'+kind+'-blank" data-i="'+i+'"> 空白';if(old.blank?.includes(i))b.querySelector("input").checked=true;
+ r.append(num,l,b);box.append(r)})
+}
+function collect(kind){let labels=[],blank=[];document.querySelectorAll("."+kind+"-label").forEach(x=>labels[+x.dataset.i]=norm(x.value));document.querySelectorAll("."+kind+"-blank").forEach(x=>{if(x.checked)blank.push(+x.dataset.i)});return {labels:labels.map(x=>x||""),blank}}
+function clearForm(){editing=null;$("formTitle").textContent="新しい問題を登録";$("saveBtn").textContent="問題を保存";$("cancelBtn").classList.add("hidden");$("newTitle").value="";$("normalAnswers").value="";$("easyName").value="";$("easyAnswers").value="";editors("normal");editors("easy")}
+function saveForm(){
+ let title=norm($("newTitle").value), normal=$("normalAnswers").value.split(/\r?\n/).map(norm).filter(Boolean), easyA=$("easyAnswers").value.split(/\r?\n/).map(norm).filter(Boolean);
+ if(!title||!normal.length)return alert("問題名と通常版の正解リストを入力してください。");
+ let ns=collect("normal"),es=collect("easy"),eq={name:norm($("easyName").value),answers:easyA,...es};
+ if(editing){let q=quizzes.find(x=>x.id===editing);q.title=title;q.answers=normal;q.labels=ns.labels;q.blank=ns.blank;q.easy=eq;current=q}
+ else{let q={id:"q_"+Date.now().toString(36),title,answers:normal,labels:ns.labels,blank:ns.blank,easy:eq};quizzes.push(q);current=q}
+ save();renderSelect();$("quizSelect").value=current.id;clearForm();show("quiz");reset();renderSaved()
+}
+function edit(id){let q=migrate(quizzes.find(x=>x.id===id));editing=id;$("formTitle").textContent="問題を編集";$("saveBtn").textContent="変更を保存";$("cancelBtn").classList.remove("hidden");$("newTitle").value=q.title;$("normalAnswers").value=q.answers.join("\n");$("easyName").value=q.easy.name||"";$("easyAnswers").value=q.easy.answers.join("\n");editors("normal",q);editors("easy",q.easy);show("manage")}
+function play(id){$("quizSelect").value=id;choose(id);show("quiz")}
+function del(id){if(quizzes.length<2)return alert("最後の1問は削除できません。");if(!confirm("削除しますか？"))return;quizzes=quizzes.filter(q=>q.id!==id);save();renderSelect();choose(quizzes[0].id);renderSaved()}
+function makeShareUrl(q){
+ let json=JSON.stringify(migrate(q));
+ let encoded=btoa(unescape(encodeURIComponent(json)));
+ return location.href.split("#")[0]+"#share="+encoded;
+}
+async function shareQuiz(q){
+ let url=makeShareUrl(q);
+ try{
+   await navigator.clipboard.writeText(url);
+   alert("共有URLをコピーしました。\n\nこのURLを友達に送れば、登録済みのこの問題をスマホ・PCからそのまま遊べます。");
+ }catch(e){
+   prompt("共有URLです。コピーして友達に送ってください。",url);
+ }
+}
+function renderSaved(){$("savedList").innerHTML="";quizzes.forEach(q=>{let d=document.createElement("div");d.className="saved";let info=document.createElement("div");info.innerHTML="<div class='saved-title'></div><div class='saved-count'></div>";info.querySelector(".saved-title").textContent=q.title;info.querySelector(".saved-count").textContent=q.answers.length+"問"+(q.easy.answers.length?" / "+q.easy.answers.length+"問（"+(q.easy.name||"簡単版")+"）":"");let a=document.createElement("div");a.className="manage-actions";[["この問題で遊ぶ","primary",()=>play(q.id)],["共有URLをコピー","",()=>shareQuiz(q)],["編集","",()=>edit(q.id)],["削除","danger",()=>del(q.id)]].forEach(x=>{let b=document.createElement("button");b.className="small "+x[1];b.textContent=x[0];b.onclick=x[2];a.append(b)});d.append(info,a);$("savedList").append(d)})}
+function show(x){let q=x==="quiz";$("quizPanel").classList.toggle("hidden",!q);$("managePanel").classList.toggle("hidden",q);$("tabQuiz").classList.toggle("active",q);$("tabManage").classList.toggle("active",!q);if(!q)renderSaved()}
+$("tabQuiz").onclick=()=>show("quiz");$("tabManage").onclick=()=>show("manage");$("quizSelect").onchange=e=>choose(e.target.value);$("modeBtn").onclick=()=>{easy=!easy;reset();updateMode();render()};$("startBtn").onclick=start;$("resetBtn").onclick=reset;$("submitBtn").onclick=submit;$("againBtn").onclick=start;$("giveUpBtn").onclick=()=>finish(false);$("answerInput").onkeydown=e=>{if(e.key==="Enter")submit()};$("saveBtn").onclick=saveForm;$("cancelBtn").onclick=clearForm;$("normalAnswers").oninput=()=>editors("normal");$("easyAnswers").oninput=()=>editors("easy");$("sequentialMode").onchange=render;$("hideCount").onchange=render;
+renderSelect();choose(quizzes[0].id);
+if(sharedQuiz){
+  $("sharedNote").textContent="　｜　共有された問題をプレイ中";
+  $("sharedNote").style.fontWeight="700";
+}
+renderSaved();editors("normal");editors("easy");
+})();
+</script>
+</body>
+</html>
