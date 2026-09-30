@@ -24,6 +24,12 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}h2{font-size:18px;margin:0 0 14px}
 .field{margin-top:14px}.saved{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:8px;display:flex;justify-content:space-between;gap:10px;align-items:center}.saved-title{font-weight:800}.saved-count{font-size:12px;color:var(--muted);margin-top:3px}.manage-actions{display:flex;gap:5px;flex-wrap:wrap}
 .item-editor{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:7px}.item-editor-grid{display:grid;grid-template-columns:42px 1fr 1fr 90px;gap:7px;align-items:center}.item-editor-head{font-size:12px;color:var(--muted);margin-top:9px}
+.item-settings{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.item-settings summary{cursor:pointer;font-weight:700;padding:10px 12px;list-style:none}
+.item-settings summary::-webkit-details-marker{display:none}
+.item-settings summary::before{content:"▶";display:inline-block;margin-right:7px;font-size:11px;transition:transform .15s}
+.item-settings[open] summary::before{transform:rotate(90deg)}
+.item-settings-body{padding:0 10px 10px}
 .version-block{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}.version-title{font-weight:800;margin-bottom:8px}.version-block textarea{min-height:110px}
 @media(max-width:760px){.quiz-head{grid-template-columns:1fr 1fr 1fr}.quiz-title{grid-column:1/-1}.grid{grid-template-columns:1fr}.item-editor-grid{grid-template-columns:35px 1fr}.item-editor-grid .easy,.item-editor-grid .blank{grid-column:2}.answers{grid-template-columns:1fr}}
 </style>
@@ -65,12 +71,18 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 <div class="version-block">
 <div class="version-title">通常版</div>
 <label>正解リスト（1行1問）</label><textarea id="normalAnswers" placeholder="第1話&#10;第2話&#10;特別編"></textarea>
-<div id="normalEditors"></div>
+<details class="item-settings">
+<summary>未回答の表示・空白回答を設定</summary>
+<div class="item-settings-body"><div id="normalEditors"></div></div>
+</details>
 </div>
 <div class="version-block">
 <div class="version-title"><label>簡単モードの名前</label><input id="easyName" type="text" placeholder="例：短縮版、初級編、アニメ版"></div>
 <label>簡単モードの正解リスト（1行1問）</label><textarea id="easyAnswers" placeholder="通常版とは違う数・違う答え・違う表示名で登録できます。&#10;不要なら空欄のまま。"></textarea>
-<div id="easyEditors"></div>
+<details class="item-settings">
+<summary>未回答の表示・空白回答を設定</summary>
+<div class="item-settings-body"><div id="easyEditors"></div></div>
+</details>
 </div>
 <div class="row" style="margin-top:14px"><button id="saveBtn" class="primary">問題を保存</button><button id="cancelBtn" class="hidden">編集をキャンセル</button></div>
 </div>
