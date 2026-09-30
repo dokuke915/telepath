@@ -91,7 +91,23 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 </section>
 </div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBCSG7DSIvbfkIFehQ_tmJaZYe8V8B0KnE",
+  authDomain: "telepath-quiz.firebaseapp.com",
+  databaseURL: "https://telepath-quiz-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "telepath-quiz",
+  storageBucket: "telepath-quiz.firebasestorage.app",
+  messagingSenderId: "96427639309",
+  appId: "1:96427639309:web:a07b809a62f999b5990b44",
+  measurementId: "G-XD34BWGHXB"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
 (()=>{
 const KEY="generic_list_quiz_v4";
 const sample=["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
@@ -121,6 +137,49 @@ function migrate(q){
 }
 function load(){try{let x=JSON.parse(localStorage.getItem(KEY));if(Array.isArray(x)&&x.length)return x.map(migrate)}catch(e){}return [migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}})]}
 function save(){localStorage.setItem(KEY,JSON.stringify(quizzes))}
+async function syncQuiz(q){
+  try{ await setDoc(doc(db,"quizzes",q.id), JSON.parse(JSON.stringify(migrate(q)))); return true; }
+  catch(e){ console.error(e); alert("オンライン保存に失敗しました。Firebaseの設定・ルールを確認してください。\n\n"+e.message); return false; }
+}
+async function removeQuizOnline(id){
+  try{ await deleteDoc(doc(db,"quizzes",id)); return true; }
+  catch(e){ console.error(e); alert("オンライン削除に失敗しました。\n\n"+e.message); return false; }
+}
+let syncBootstrapped=false, syncingFromServer=false;
+function startFirebaseSync(){
+  onSnapshot(collection(db,"quizzes"), async snap=>{
+    const remote=snap.docs.map(d=>({id:d.id,...d.data()})).filter(q=>q.title && Array.isArray(q.answers)).map(migrate);
+    if(!syncBootstrapped){
+      syncBootstrapped=true;
+      if(remote.length){
+        quizzes=remote;
+        save();
+        renderSelect();
+        choose(quizzes[0].id);
+        renderSaved();
+      }else{
+        // Firestoreが空なら、この端末に保存されている問題を初回だけアップロード
+        for(const q of quizzes) await syncQuiz(q);
+      }
+      return;
+    }
+    syncingFromServer=true;
+    if(remote.length){
+      const selected=current?.id;
+      quizzes=remote;
+      save();
+      renderSelect();
+      if(selected && quizzes.some(q=>q.id===selected)) choose(selected);
+      else choose(quizzes[0].id);
+      renderSaved();
+    }
+    syncingFromServer=false;
+  }, err=>{
+    console.error(err);
+    const el=$("sharedNote");
+    if(el) el.textContent="　｜　Firebase接続エラー（この端末の保存内容で動作中）";
+  });
+}
 function version(){return easy?current.easy:current}
 function label(i){const v=version(),x=v.labels?.[i];return x?x.replace(/\{n\}/g,String(i+1)):"未回答"}
 function answer(i){return norm(version().answers[i])}
@@ -198,17 +257,21 @@ function editors(kind,data){
 }
 function collect(kind){let labels=[],blank=[];document.querySelectorAll("."+kind+"-label").forEach(x=>labels[+x.dataset.i]=norm(x.value));document.querySelectorAll("."+kind+"-blank").forEach(x=>{if(x.checked)blank.push(+x.dataset.i)});return {labels:labels.map(x=>x||""),blank}}
 function clearForm(){editing=null;$("formTitle").textContent="新しい問題を登録";$("saveBtn").textContent="問題を保存";$("cancelBtn").classList.add("hidden");$("newTitle").value="";$("normalAnswers").value="";$("easyName").value="";$("easyAnswers").value="";editors("normal");editors("easy")}
-function saveForm(){
+async function saveForm(){
  let title=norm($("newTitle").value), normal=$("normalAnswers").value.split(/\r?\n/).map(norm).filter(Boolean), easyA=$("easyAnswers").value.split(/\r?\n/).map(norm).filter(Boolean);
  if(!title||!normal.length)return alert("問題名と通常版の正解リストを入力してください。");
  let ns=collect("normal"),es=collect("easy"),eq={name:norm($("easyName").value),answers:easyA,...es};
- if(editing){let q=quizzes.find(x=>x.id===editing);q.title=title;q.answers=normal;q.labels=ns.labels;q.blank=ns.blank;q.easy=eq;current=q}
- else{let q={id:"q_"+Date.now().toString(36),title,answers:normal,labels:ns.labels,blank:ns.blank,easy:eq};quizzes.push(q);current=q}
- save();renderSelect();$("quizSelect").value=current.id;clearForm();show("quiz");reset();renderSaved()
+ let q;
+ if(editing){q=quizzes.find(x=>x.id===editing);q.title=title;q.answers=normal;q.labels=ns.labels;q.blank=ns.blank;q.easy=eq;current=q}
+ else{q={id:"q_"+Date.now().toString(36),title,answers:normal,labels:ns.labels,blank:ns.blank,easy:eq};quizzes.push(q);current=q}
+ save();
+ const ok=await syncQuiz(q);
+ if(!ok)return;
+ renderSelect();$("quizSelect").value=current.id;clearForm();show("quiz");reset();renderSaved()
 }
 function edit(id){let q=migrate(quizzes.find(x=>x.id===id));editing=id;$("formTitle").textContent="問題を編集";$("saveBtn").textContent="変更を保存";$("cancelBtn").classList.remove("hidden");$("newTitle").value=q.title;$("normalAnswers").value=q.answers.join("\n");$("easyName").value=q.easy.name||"";$("easyAnswers").value=q.easy.answers.join("\n");editors("normal",q);editors("easy",q.easy);show("manage")}
 function play(id){$("quizSelect").value=id;choose(id);show("quiz")}
-function del(id){if(quizzes.length<2)return alert("最後の1問は削除できません。");if(!confirm("削除しますか？"))return;quizzes=quizzes.filter(q=>q.id!==id);save();renderSelect();choose(quizzes[0].id);renderSaved()}
+async function del(id){if(quizzes.length<2)return alert("最後の1問は削除できません。");if(!confirm("削除しますか？"))return;const ok=await removeQuizOnline(id);if(!ok)return;quizzes=quizzes.filter(q=>q.id!==id);save();renderSelect();choose(quizzes[0].id);renderSaved()}
 function makeShareUrl(q){
  let json=JSON.stringify(migrate(q));
  let encoded=btoa(unescape(encodeURIComponent(json)));
@@ -232,6 +295,7 @@ if(sharedQuiz){
   $("sharedNote").style.fontWeight="700";
 }
 renderSaved();editors("normal");editors("easy");
+startFirebaseSync();
 })();
 </script>
 </body>
