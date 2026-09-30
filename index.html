@@ -94,6 +94,7 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBCSG7DSIvbfkIFehQ_tmJaZYe8V8B0KnE",
@@ -107,6 +108,8 @@ const firebaseConfig = {
 };
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
+const authReady = signInAnonymously(auth).then(cred => { window.telepathAuthUid = cred.user.uid; return cred.user; });
 
 (()=>{
 const KEY="generic_list_quiz_v4";
@@ -152,7 +155,9 @@ function startFirebaseSync(){
     if(!syncBootstrapped){
       syncBootstrapped=true;
       if(remote.length){
-        quizzes=remote;
+        // Firebase側の問題に、最初から入っている都道府県サンプルを常に追加
+        const sampleQuiz=migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}});
+        quizzes=[sampleQuiz,...remote.filter(q=>q.id!=="sample")];
         save();
         renderSelect();
         choose(quizzes[0].id);
@@ -166,7 +171,8 @@ function startFirebaseSync(){
     syncingFromServer=true;
     if(remote.length){
       const selected=current?.id;
-      quizzes=remote;
+      const sampleQuiz=migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}});
+      quizzes=[sampleQuiz,...remote.filter(q=>q.id!=="sample")];
       save();
       renderSelect();
       if(selected && quizzes.some(q=>q.id===selected)) choose(selected);
@@ -295,7 +301,7 @@ if(sharedQuiz){
   $("sharedNote").style.fontWeight="700";
 }
 renderSaved();editors("normal");editors("easy");
-startFirebaseSync();
+authReady.then(()=>startFirebaseSync()).catch(e=>{ console.error(e); const el=$("sharedNote"); if(el) el.textContent="　｜　認証エラー（Firebase Authenticationの匿名ログインを確認してください）"; });
 })();
 </script>
 </body>
