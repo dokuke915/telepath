@@ -35,6 +35,11 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 </style>
 </head>
 <body>
+<div class="card" style="max-width:1100px;margin:18px auto 0">
+<h2>アカウント</h2><div id="authStatus">子モード（ログイン不要）</div>
+<div id="parentLoginBox" class="hidden" style="margin-top:10px"><div class="row"><input id="emailInput" type="email" placeholder="メールアドレス"><input id="passwordInput" type="password" placeholder="パスワード"></div><div class="row" style="margin-top:8px"><button id="loginBtn">親としてログイン</button><button id="signupBtn">親アカウントを作成</button><button id="logoutBtn">子モードに戻る</button></div><p class="help">子はログイン不要です。親のスマホは同じ親アカウントでログインできます。</p></div><button id="showLoginBtn" style="margin-top:8px">親としてログイン</button>
+</div>
+
 <div class="wrap">
 <h1>タイムアタック・リストクイズ</h1>
 <p class="sub">通常版と、問題数や表示内容が違う「簡単モード」を問題ごとに登録できます。<span id="sharedNote"></span></p>
@@ -93,8 +98,8 @@ select,input[type=text],textarea{width:100%;border:1px solid var(--line);border-
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+import { getAuth, signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBCSG7DSIvbfkIFehQ_tmJaZYe8V8B0KnE",
@@ -109,7 +114,19 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
-const authReady = signInAnonymously(auth).then(cred => { window.telepathAuthUid = cred.user.uid; return cred.user; });
+let authResolve;
+const authReady = new Promise(r=>authResolve=r);
+window.telepathAuthState={user:null,isParent:false};
+async function refreshRole(user){
+ let isParent=false;
+ if(user && !user.isAnonymous){ try{ isParent=(await getDoc(doc(db,"parentUsers",user.uid))).exists(); }catch(e){ console.warn(e); } }
+ window.telepathAuthState={user,isParent}; window.telepathAuthUid=user?.uid||null; return window.telepathAuthState;
+}
+async function initAuth(){
+ try{ const user=auth.currentUser || (await signInAnonymously(auth)).user; authResolve(await refreshRole(user)); }
+ catch(e){ console.error(e); authResolve({user:null,isParent:false,error:e}); }
+}
+initAuth();
 
 (()=>{
 const KEY="generic_list_quiz_v4";
@@ -141,50 +158,24 @@ function migrate(q){
 function load(){try{let x=JSON.parse(localStorage.getItem(KEY));if(Array.isArray(x)&&x.length)return x.map(migrate)}catch(e){}return [migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}})]}
 function save(){localStorage.setItem(KEY,JSON.stringify(quizzes))}
 async function syncQuiz(q){
-  try{ await setDoc(doc(db,"quizzes",q.id), JSON.parse(JSON.stringify(migrate(q)))); return true; }
-  catch(e){ console.error(e); alert("オンライン保存に失敗しました。Firebaseの設定・ルールを確認してください。\n\n"+e.message); return false; }
+ try{const st=window.telepathAuthState;if(!st.user)throw new Error("認証が完了していません");
+  if(st.isParent) await setDoc(doc(db,"quizzes",q.id),{...migrate(q),ownerType:"parent",ownerUid:st.user.uid});
+  else await setDoc(doc(db,"childQuizzes",st.user.uid,"items",q.id),{...migrate(q),ownerType:"child",ownerUid:st.user.uid});
+  return true;}catch(e){console.error(e);alert("オンライン保存に失敗しました。\n\n"+e.message);return false;}
 }
 async function removeQuizOnline(id){
-  try{ await deleteDoc(doc(db,"quizzes",id)); return true; }
-  catch(e){ console.error(e); alert("オンライン削除に失敗しました。\n\n"+e.message); return false; }
+ try{const st=window.telepathAuthState;if(st.isParent)await deleteDoc(doc(db,"quizzes",id));else await deleteDoc(doc(db,"childQuizzes",st.user.uid,"items",id));return true;}catch(e){alert("オンライン削除に失敗しました。\n\n"+e.message);return false;}
 }
-let syncBootstrapped=false, syncingFromServer=false;
+let syncBootstrapped=false;
 function startFirebaseSync(){
-  onSnapshot(collection(db,"quizzes"), async snap=>{
-    const remote=snap.docs.map(d=>({id:d.id,...d.data()})).filter(q=>q.title && Array.isArray(q.answers)).map(migrate);
-    if(!syncBootstrapped){
-      syncBootstrapped=true;
-      if(remote.length){
-        // Firebase側の問題に、最初から入っている都道府県サンプルを常に追加
-        const sampleQuiz=migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}});
-        quizzes=[sampleQuiz,...remote.filter(q=>q.id!=="sample")];
-        save();
-        renderSelect();
-        choose(quizzes[0].id);
-        renderSaved();
-      }else{
-        // Firestoreが空なら、この端末に保存されている問題を初回だけアップロード
-        for(const q of quizzes) await syncQuiz(q);
-      }
-      return;
-    }
-    syncingFromServer=true;
-    if(remote.length){
-      const selected=current?.id;
-      const sampleQuiz=migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}});
-      quizzes=[sampleQuiz,...remote.filter(q=>q.id!=="sample")];
-      save();
-      renderSelect();
-      if(selected && quizzes.some(q=>q.id===selected)) choose(selected);
-      else choose(quizzes[0].id);
-      renderSaved();
-    }
-    syncingFromServer=false;
-  }, err=>{
-    console.error(err);
-    const el=$("sharedNote");
-    if(el) el.textContent="　｜　Firebase接続エラー（この端末の保存内容で動作中）";
-  });
+ const st=window.telepathAuthState;
+ if(window._publicUnsub)window._publicUnsub(); if(window._childUnsub)window._childUnsub();
+ window._publicUnsub=onSnapshot(collection(db,"quizzes"),snap=>{
+  const remote=snap.docs.map(d=>({id:d.id,...d.data()})).filter(q=>q.title&&Array.isArray(q.answers)&&q.ownerType==="parent").map(migrate);
+  const apply=childRemote=>{const sampleQuiz=migrate({id:"sample",title:"都道府県（サンプル）",answers:sample,labels:[],blank:[],easy:{name:"",answers:[],labels:[],blank:[]}});const selected=current?.id;quizzes=[sampleQuiz,...remote.filter(q=>q.id!=="sample"),...childRemote];save();renderSelect();if(selected&&quizzes.some(q=>q.id===selected))choose(selected);else choose(quizzes[0].id);renderSaved();};
+  if(st.user?.isAnonymous){window._childUnsub=onSnapshot(collection(db,"childQuizzes",st.user.uid,"items"),cs=>apply(cs.docs.map(d=>({id:d.id,...d.data()})).filter(q=>q.title&&Array.isArray(q.answers)&&q.ownerType==="child").map(migrate)));}else apply([]);
+  if(!syncBootstrapped&&st.isParent&&remote.length===0){syncBootstrapped=true;for(const q of quizzes.filter(q=>q.id!=="sample"))syncQuiz(q);}else syncBootstrapped=true;
+ },e=>console.error(e));
 }
 function version(){return easy?current.easy:current}
 function label(i){const v=version(),x=v.labels?.[i];return x?x.replace(/\{n\}/g,String(i+1)):"未回答"}
@@ -292,7 +283,13 @@ async function shareQuiz(q){
    prompt("共有URLです。コピーして友達に送ってください。",url);
  }
 }
-function renderSaved(){$("savedList").innerHTML="";quizzes.forEach(q=>{let d=document.createElement("div");d.className="saved";let info=document.createElement("div");info.innerHTML="<div class='saved-title'></div><div class='saved-count'></div>";info.querySelector(".saved-title").textContent=q.title;info.querySelector(".saved-count").textContent=q.answers.length+"問"+(q.easy.answers.length?" / "+q.easy.answers.length+"問（"+(q.easy.name||"簡単版")+"）":"");let a=document.createElement("div");a.className="manage-actions";[["この問題で遊ぶ","primary",()=>play(q.id)],["共有URLをコピー","",()=>shareQuiz(q)],["編集","",()=>edit(q.id)],["削除","danger",()=>del(q.id)]].forEach(x=>{let b=document.createElement("button");b.className="small "+x[1];b.textContent=x[0];b.onclick=x[2];a.append(b)});d.append(info,a);$("savedList").append(d)})}
+function renderSaved(){
+ $("savedList").innerHTML=""; const st=window.telepathAuthState;
+ quizzes.forEach(q=>{let d=document.createElement("div");d.className="saved";let info=document.createElement("div");info.innerHTML="<div class='saved-title'></div><div class='saved-count'></div>";info.querySelector(".saved-title").textContent=q.title;info.querySelector(".saved-count").textContent=q.answers.length+"問"+(q.easy.answers.length?" / "+q.easy.answers.length+"問（"+(q.easy.name||"簡単版")+"）":"");let a=document.createElement("div");a.className="manage-actions";[["この問題で遊ぶ","primary",()=>play(q.id)],["共有URLをコピー","",()=>shareQuiz(q)]].forEach(x=>{let b=document.createElement("button");b.className="small "+x[1];b.textContent=x[0];b.onclick=x[2];a.append(b)});
+ const mine=st.user&&st.user.isAnonymous&&q.ownerType==="child"&&q.ownerUid===st.user.uid; const canEdit=st.isParent&&q.ownerType==="parent"||mine;
+ if(canEdit){[["編集","",()=>edit(q.id)],["削除","danger",()=>del(q.id)]].forEach(x=>{let b=document.createElement("button");b.className="small "+x[1];b.textContent=x[0];b.onclick=x[2];a.append(b)})}
+ d.append(info,a);$("savedList").append(d)})
+}
 function show(x){let q=x==="quiz";$("quizPanel").classList.toggle("hidden",!q);$("managePanel").classList.toggle("hidden",q);$("tabQuiz").classList.toggle("active",q);$("tabManage").classList.toggle("active",!q);if(!q)renderSaved()}
 $("tabQuiz").onclick=()=>show("quiz");$("tabManage").onclick=()=>show("manage");$("quizSelect").onchange=e=>choose(e.target.value);$("modeBtn").onclick=()=>{easy=!easy;reset();updateMode();render()};$("startBtn").onclick=start;$("resetBtn").onclick=reset;$("submitBtn").onclick=submit;$("againBtn").onclick=start;$("giveUpBtn").onclick=()=>finish(false);$("answerInput").onkeydown=e=>{if(e.key==="Enter")submit()};$("saveBtn").onclick=saveForm;$("cancelBtn").onclick=clearForm;$("normalAnswers").oninput=()=>editors("normal");$("easyAnswers").oninput=()=>editors("easy");$("sequentialMode").onchange=render;$("hideCount").onchange=render;
 renderSelect();choose(quizzes[0].id);
@@ -301,7 +298,12 @@ if(sharedQuiz){
   $("sharedNote").style.fontWeight="700";
 }
 renderSaved();editors("normal");editors("easy");
-authReady.then(()=>startFirebaseSync()).catch(e=>{ console.error(e); const el=$("sharedNote"); if(el) el.textContent="　｜　認証エラー（Firebase Authenticationの匿名ログインを確認してください）"; });
+function updateAuthUI(){const st=window.telepathAuthState;$("authStatus").textContent=st.isParent?"親モード："+(st.user.email||""):"子モード（ログイン不要）";$("parentLoginBox").classList.toggle("hidden",!st.isParent);$("showLoginBtn").classList.toggle("hidden",st.isParent);$("logoutBtn").classList.toggle("hidden",!st.isParent);document.querySelectorAll(".parent-only").forEach(b=>b.classList.toggle("hidden",!st.isParent));}
+$("showLoginBtn").onclick=()=>$("parentLoginBox").classList.remove("hidden");
+$("loginBtn").onclick=async()=>{try{const c=await signInWithEmailAndPassword(auth,$("emailInput").value.trim(),$("passwordInput").value);await refreshRole(c.user);updateAuthUI();startFirebaseSync();alert(window.telepathAuthState.isParent?"親としてログインしました。":"このアカウントには親権限がありません。Firebaseで親権限を付与してください。");}catch(e){alert("ログインできませんでした。\n"+e.message)}};
+$("signupBtn").onclick=async()=>{try{const c=await createUserWithEmailAndPassword(auth,$("emailInput").value.trim(),$("passwordInput").value);await refreshRole(c.user);updateAuthUI();alert("アカウントを作成しました。\n次にFirebaseでこのアカウントへ親権限を付与します。\nUID："+c.user.uid);}catch(e){alert("作成できませんでした。\n"+e.message)}};
+$("logoutBtn").onclick=async()=>{await signOut(auth);const c=await signInAnonymously(auth);await refreshRole(c.user);updateAuthUI();startFirebaseSync();};
+authReady.then(()=>{updateAuthUI();startFirebaseSync();});
 })();
 </script>
 </body>
